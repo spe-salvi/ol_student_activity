@@ -14,12 +14,16 @@ def courses_api():
 
 def courses_endpoint(courses):
     return {
-        str(course.get('id', '')): {
-            'sis_course_id': course.get('sis_course_id', ''),
-            'course_name': course.get('name', '')
+        str(c.get('id', '')): {
+            'sis_course_id': c.get('sis_course_id', ''),
+            'course_name': c.get('name', '')
         }
-        for course in courses
+        for c in courses
     }
+
+def build_all_courses():
+    cs = courses_api() or []
+    return courses_endpoint(cs)
 
 
 

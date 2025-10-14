@@ -7,18 +7,18 @@ import datetime
 import api_endpoints.courses as courses
 import api_endpoints.enrollments as enrollments
 import api_endpoints.students as students
-from api_endpoints.activity import build_student_pageviews
-from api_endpoints.summaries import build_student_summaries
+import api_endpoints.activity as activity
+import api_endpoints.summaries as summaries
 from utils.dataframe_utils import *
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 
 def controller():
-    cs = courses.courses_api()
-    course_dict = courses.courses_endpoint(cs)
-
+    course_dict = courses.build_all_courses()
     student_analytics_dict = collect_student_analytics(course_dict)
-    enrollments_dict = collect_all_enrollments(course_dict)
-    student_dict = collect_all_students(enrollments_dict)
+    enrollments_dict = enrollments.build_all_enrollments(course_dict)
+    student_dict = students.build_all_students(enrollments_dict)
 
     analytics_df = build_analytics_df(student_analytics_dict)
     course_df = build_course_df(course_dict)
@@ -28,47 +28,50 @@ def controller():
     return clean_df(final_df)
 
 
-def collect_student_analytics(course_dict):
-    course_ids = list(course_dict.keys())
+def collect_student_analytics(enrollments_dict):
+    """
+    Build {user_id: {course_id: {student_summary + pageview}}} atomically and resiliently.
+    """
+    analytics_dict = {}
 
-    summaries = build_student_summaries(course_ids)
-    pageviews = build_student_pageviews(course_ids)
+    # All (user_id, course_id) pairs
+    user_course_pairs = [
+        (uid, cid)
+        for uid, courses in enrollments_dict.items()
+        for cid in courses.keys()
+    ]
 
-    return {
-        uid: {
-            cid: {
-                **summaries.get(uid, {}).get(cid, {}),
-                **pageviews.get(uid, {}).get(cid, {})
-            }
-            for cid in set(summaries.get(uid, {})) | set(pageviews.get(uid, {}))
-        }
-        for uid in set(summaries) | set(pageviews)
-    }
+    def fetch_and_merge(uid, cid):
+        try:
+            # Fetch summary
+            s = summaries.student_summary_api(cid) or []
+            summary_data = summaries.student_summary_endpoint(s, cid).get(uid, {})
+
+            # Fetch pageview
+            pageview_data = activity.pageview_endpoint(
+                activity.pageviews_api(cid, uid) or {}, uid, cid
+            ).get(uid, {}).get(cid, {})
+
+            # Combine and return
+            return uid, cid, {**summary_data, **pageview_data}
+
+        except:
+            return uid, cid, {}
+
+    # Threaded execution
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+        futures = [executor.submit(fetch_and_merge, uid, cid) for uid, cid in user_course_pairs]
+        for future in as_completed(futures):
+            uid, cid, data = future.result()
+            analytics_dict.setdefault(uid, {})[cid] = data
+
+    return analytics_dict
 
 
-def collect_all_enrollments(course_dict):
-    all_enrollments = {}
 
-    for cid in course_dict:
-        es = enrollments.enrollments_api(cid)
-        enroll_dict = enrollments.enrollments_endpoint(es)
 
-        for uid, courses in enroll_dict.items():
-            if uid not in all_enrollments:
-                all_enrollments[uid] = {}
-            all_enrollments[uid].update(courses)
 
-    return all_enrollments
 
-def collect_all_students(enrollments_dict):
-    student_dict = {}
-
-    for user_id in enrollments_dict:
-        user_data = students.student_api(user_id)
-        user_dict = students.student_endpoint(user_data)
-        student_dict.update(user_dict)
-
-    return student_dict
 
 
 
