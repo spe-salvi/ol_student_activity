@@ -2,15 +2,17 @@ import pandas as pd
 
 def flatten_analytics_dict(student_analytics_dict):
     return [{
-                'user_id': uid,
+                
                 'course_id': cid,
-                'missing': data.get('missing', ''),
-                'late': data.get('late', ''),
-                'last_pageview': data.get('last_pageview', None),
-                'last_participation': data.get('last_participation', None)
+                'user_id': uid,
+                'missing': data.get('missing', 0),
+                'late': data.get('late', 0),
+                'page_views': data.get('page_views', 0),
+                'participations': data.get('participations', 0)
             }
-            for uid, courses in student_analytics_dict.items()
-            for cid, data in courses.items()]
+            for cid, users in student_analytics_dict.items()
+            for uid, data in users.items()
+            ]
 
 
 def flatten_course_dict(course_dict):    
@@ -32,7 +34,7 @@ def build_analytics_df(student_analytics_dict):
     rows = flatten_analytics_dict(student_analytics_dict)
     if not rows:
         print("⚠️ Warning: No enrollments returned. Check API.")
-        return pd.DataFrame(columns=['user_id', 'course_id', 'current_score'])
+        return pd.DataFrame(columns=['user_id', 'course_id', 'missing', 'late', 'page_views', 'participations'])
     return pd.DataFrame(rows)
 
 def build_course_df(course_dict):
@@ -74,14 +76,13 @@ def merge_dfs(analytics, courses, enrollments, students):
     final_columns = [
         'sortable_name', 'sis_user_id', 'email', 
         'sis_course_id', 'course_name', 'current_score',
-        'missing', 'late', 'last_pageview', 'last_participation'
+        'missing', 'late', 'page_views', 'participations'
     ]
     df = df[final_columns]
 
     return df
 
 def coerce_ids_to_str(df, id_columns):
-    """Convert all specified ID columns in a dataframe to string."""
     for col in id_columns:
         if col in df.columns:
             df[col] = df[col].astype(str)
@@ -91,16 +92,31 @@ def clean_df(df):
     df['current_score'] = df['current_score'].fillna(0)
     df['missing'] = df['missing'].fillna(0)
     df['late'] = df['late'].fillna(0)
-
-    df['last_pageview'] = pd.to_datetime(df['last_pageview'], errors='coerce')
-    df['last_participation'] = pd.to_datetime(df['last_participation'], errors='coerce')
-    df['last_pageview'] = df['last_pageview'].fillna(pd.NaT)
-    df['last_participation'] = df['last_participation'].fillna(pd.NaT)
+    df['page_views'] = df['page_views'].fillna(0)
+    df['participations'] = df['participations'].fillna(0)
 
     df = df[
         df['sortable_name'].notna() & df['sortable_name'].ne('') &
+        ~df['sortable_name'].astype(str).str.contains('Student, Test', na=False) &
         df['sis_course_id'].notna() & df['sis_course_id'].ne('') &
-        ~df['sis_course_id'].str.contains('UNV-800')
+        ~df['sis_course_id'].astype(str).str.contains('UNV-800', na=False)
     ]
 
     return df
+
+def filter_courses(course_df, level):
+    sis_course_id_list = list(set(course_df['sis_course_id'].tolist()))
+    dfs = []
+
+    for sis in sis_course_id_list:
+        if sis is None:
+            continue
+        elif len(sis.split('-')) > 2:
+            course_num = int(sis.split('-')[2])
+            if course_num < 500 and level == 'undergrad':
+                dfs.append(course_df[course_df['sis_course_id'] == sis])
+            elif course_num >= 500 and level == 'grad':
+                dfs.append(course_df[course_df['sis_course_id'] == sis])
+
+    filtered_df = pd.concat(dfs)
+    return filtered_df

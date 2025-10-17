@@ -17,7 +17,8 @@ HEADERS = {
     "Authorization": "Bearer " + ACCESS_TOKEN_EL
     }
 
-MAX_WORKERS = 15
+MAX_WORKERS = 30
+LEVEL = ('undergrad', 'grad')
 
 TERM = 116
 SEARCH_TERM = '-OL-'

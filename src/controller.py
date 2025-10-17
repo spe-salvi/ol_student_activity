@@ -14,58 +14,83 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
 
-def controller():
+def controller(level):
     course_dict = courses.build_all_courses()
-    student_analytics_dict = collect_student_analytics(course_dict)
     enrollments_dict = enrollments.build_all_enrollments(course_dict)
+    student_analytics_dict = summaries.build_student_summaries(course_dict)
     student_dict = students.build_all_students(enrollments_dict)
 
-    analytics_df = build_analytics_df(student_analytics_dict)
+    print("=== ANALYTICS DICT SNAPSHOT ===")
+    import json
+    print(json.dumps({k: list(v.keys()) for k, v in list(student_analytics_dict.items())[:5]}, indent=2))
+    print("Example nested data:")
+    for cid, user in list(student_analytics_dict.items())[:3]:
+        for uid, data in user.items():
+            print(f"User {uid}, Course {cid}, Data: {data}")
+            break
+
+
     course_df = build_course_df(course_dict)
+    course_df = filter_courses(course_df, level)
     enrollments_df = build_enrollments_df(enrollments_dict)
+    analytics_df = build_analytics_df(student_analytics_dict)
     student_df = build_student_df(student_dict)
     final_df = merge_dfs(analytics_df, course_df, enrollments_df, student_df)
     return clean_df(final_df)
 
 
-def collect_student_analytics(enrollments_dict):
-    """
-    Build {user_id: {course_id: {student_summary + pageview}}} atomically and resiliently.
-    """
-    analytics_dict = {}
+# def collect_student_analytics(enrollments_dict):
+#     """
+#     Build {user_id: {course_id: {student_summary + pageview}}} atomically and resiliently.
+#     """
+#     analytics_dict = {}
 
-    # All (user_id, course_id) pairs
-    user_course_pairs = [
-        (uid, cid)
-        for uid, courses in enrollments_dict.items()
-        for cid in courses.keys()
-    ]
+#     # All (user_id, course_id) pairs
+#     user_course_pairs = [
+#         (str(uid), str(cid))
+#         for uid, courses in enrollments_dict.items()
+#         for cid in courses.keys()
+#     ]
 
-    def fetch_and_merge(uid, cid):
-        try:
-            # Fetch summary
-            s = summaries.student_summary_api(cid) or []
-            summary_data = summaries.student_summary_endpoint(s, cid).get(uid, {})
+#     def fetch_and_merge(uid, cid):
+#         try:
+#             raw_summaries = summaries.student_summary_api(cid) or {}
+#             print(f"[DEBUG] First summary in list: {raw_summaries[0]}")
+#             summary_nested = summaries.student_summary_endpoint(raw_summaries[0], cid)
+#             # Extract the relevant entry for this uid/cid, if any
+#             summary_entry = summary_nested.get(uid, {}).get(cid, {})
 
-            # Fetch pageview
-            pageview_data = activity.pageview_endpoint(
-                activity.pageviews_api(cid, uid) or {}, uid, cid
-            ).get(uid, {}).get(cid, {})
+#             # Pageviews: pageviews_api expects both course & user
+#             raw_pv = activity.pageviews_api(cid, uid) or {}
+#             pv_nested = activity.pageview_endpoint(raw_pv, uid, cid)
+#             pageview_entry = pv_nested.get(uid, {}).get(cid, {})
 
-            # Combine and return
-            return uid, cid, {**summary_data, **pageview_data}
+#             raw_summaries = summaries.student_summary_api(cid)
+#             print(f"🔍 Summary API raw for course {cid}: {type(raw_summaries)} {str(raw_summaries)[:200]}")
 
-        except:
-            return uid, cid, {}
+#             raw_pv = activity.pageviews_api(cid, uid)
+#             print(f"🔍 Pageview API raw for user {uid}, course {cid}: {type(raw_pv)} {str(raw_pv)[:200]}")
 
-    # Threaded execution
-    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
-        futures = [executor.submit(fetch_and_merge, uid, cid) for uid, cid in user_course_pairs]
-        for future in as_completed(futures):
-            uid, cid, data = future.result()
-            analytics_dict.setdefault(uid, {})[cid] = data
 
-    return analytics_dict
+#             merged = {**(summary_entry or {}), **(pageview_entry or {})}
+#             print(f"[DEBUG] UID {uid}, CID {cid}")
+#             print(f"  Summary Data: {summary_entry}")
+#             print(f"  Pageview Data: {pageview_entry}")
+
+
+#             return uid, cid, merged
+
+#         except:
+#             return uid, cid, {}
+
+#     # Threaded execution
+#     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+#         futures = [executor.submit(fetch_and_merge, uid, cid) for uid, cid in user_course_pairs]
+#         for future in as_completed(futures):
+#             uid, cid, data = future.result()
+#             analytics_dict.setdefault(uid, {})[cid] = data
+
+#     return analytics_dict
 
 
 
