@@ -1,6 +1,5 @@
-https://www.udemy.com/course/professional-certificate-in-data-mining-machine-learning/?couponCode=MT251015G2
-https://www.udemy.com/course/git-mastery-beginner-to-expert-with-github-gitlab/?couponCode=MT251015G2
-https://steinhardt.nyu.edu/learn/learning-analytics-101
+# Online Student Activity - Weekly Report
+## A consistently needed report for online academic advisors to determine student engagement
 
-https://www.coursera.org/professional-certificates/ibm-full-stack-cloud-developer
-https://www.coursera.org/learn/etl-and-data-pipelines-shell-airflow-kafka
+- Future features: Convert into web dashboard for advisors to run themselves
+- Current runtime: ~2 minutes
